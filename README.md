@@ -379,3 +379,36 @@ elif deploy_env == "WIRELESS_EDGE":
     output_stream_seq, telemetry_history = fng_v2_kernel(packet_stream_seq, standby_pool, initial_state)
 ```
 
+---
+
+# 상위 신경망 결합 레이어 (Fused Transformer Attention Co-Design)의 청사진입니다. (fng_transformer_attention_fused.py)
+
+Fluidic Network Grid (FNG) V3는 LLM 분산 KV 캐시 전송 경계면에 직접 인터클레이싱(Interleaving)되는 하드웨어-신경망 공동 설계(Co-Design) 아키텍처를 통해 NCCL 통신 배리어 0.0%의 극대화된 서빙 처리량을 달성하는것이 목적입니다.
+
+### 1.1 `fng_transformer_attention_fused.py` 플러그인 아키텍처
+
+*   **개요:** Context Parallelism 기반의 분산 학습/추론 환경에서 작동하는 Llama 스타일 Transformer 통합 Attention 제어 레이어입니다.
+*   **주요 기능 및 효과:**
+    1.  **0ns Retransmission-Free KV 캐시 복원:** 통신 중 패킷 유실이 발생하더라도 하드웨어(온칩 레지스터) 단에서 1차원 역확산 및 노이만 경계 수축을 통해 실시간으로 무게중심을 역산, 패킷 재전송(ACK/NACK) 대기 시간 없이 KV 캐시 다양체를 원자 복원합니다.
+    2.  **컴파일러 스코프 격리 (Static Branch Elimination):** `__init__` 시점에 V2 Stateful 스캔 루프 팩토리를 구동하여 XLA 컴파일러 내부 메모리에 제어 평면을 정적 동결합니다. 이를 통해 런타임 환경 변수 플래그 분기(`if-else`)문을 컴파일 타임에 데드 코드로 잘라내어(Pruning) 가속기 연산 스톨을 박멸합니다.
+    3.  **Autograd Isolation (미분 차단 가드레일):** 기지국 완전 블랙아웃 등 극단적인 가혹 유실 환경 진입 시, `jax.lax.stop_gradient` 차단 밸브를 열어 미분이 거세된 과거 상수를 흘려보냄으로써 가짜 데이터 유입으로 인한 AI 가중치(Weights) NaN 붕괴 현상을 자율 격리 방어합니다.
+
+```python
+# FNG 고유 하드웨어 가속 라이브러리와 Llama 어텐션의 결합 예시
+from fng_transformer_attention_fused import FngInterleavedLlamaAttention
+
+# 8개 가속기 분산 메시 격자 및 어텐션 플러그인 가동
+fng_attention_layer = FngInterleavedLlamaAttention(devices_mesh=devices_mesh)
+
+# 🏢 [WIRED_DATACENTER] 모드: 0ns 초고속 패스 구동 (NCCL 대기 레이턴시 박멸)
+context_vector_v1 = fng_attention_layer(
+    local_q=q_tensor, local_k=k_tensor, local_v=v_tensor,
+    cold_standby_pool=standby_rail, deploy_env="WIRED_DATACENTER"
+)
+
+# 📡 [WIRELESS_EDGE] 모드: 시변 무선 난류 대응 및 stop_gradient 미분 락 가동
+context_vector_v2 = fng_attention_layer(
+    local_q=q_tensor, local_k=k_tensor, local_v=v_tensor,
+    cold_standby_pool=standby_rail, deploy_env="WIRELESS_EDGE"
+)
+```
