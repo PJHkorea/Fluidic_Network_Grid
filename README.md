@@ -99,7 +99,8 @@ def viscous_manifold_transport(data_stream):
 본 아키텍처가 XLA 컴파일러 최적화 단계를 거쳐 GPU/TPU 레지스터 단에서 단일 융합 커널(Fused Kernel)로 동결되기 위한 핵심 수리 물리 방정식 선언입니다.
 
 ### 2.1 분산 통신 지터 마스크 생성 (Global Jitter Mask)
-각 분산 노드 $r$의 하드웨어 결함 및 지연 비트 시그널을 조건문 없이 글로벌 비트 논리합 ($\bigvee$)으로 단 한 번에 압축하여 통신 지터 마스크 ($\mathbf{M}_{\text{global}}$)를 생성합니다. 하드웨어 레벨에서는 NCCL 링을 멈추는 동기화 인터럽트 펜스 없이 집단 통신 연산인 `jax.lax.psum`을 통해 단일 사이클 내에 일괄 압축됩니다.
+각 분산 노드 $r$의 하드웨어 결함 및 지연 비트 시그널을 조건문 없이 글로벌 비트 논리합 ($\bigvee$)으로 단 한 번에 압축하여 통신 지터 마스크 ($\mathbf{M}_{\mathrm{global}}$)
+를 생성합니다. 하드웨어 레벨에서는 NCCL 링을 멈추는 동기화 인터럽트 펜스 없이 집단 통신 연산인 `jax.lax.psum`을 통해 단일 사이클 내에 일괄 압축됩니다.
 
 $$\mathbf{M}_{\text{global}} = \bigvee_{r=1}^{R} \left( \llbracket \mathbf{S}_{r} \rrbracket_{\text{bit}} \right) \quad \in \{0,1\}^{1 \times D}$$
 
