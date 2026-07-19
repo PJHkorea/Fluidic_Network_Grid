@@ -94,11 +94,11 @@ def viscous_manifold_transport(data_stream):
 
 ---
 
-## 2. 하드웨어 네이티브 제어 평면 수식 모델 (Mathematical Control Plane)
+## 4. 하드웨어 네이티브 제어 평면 수식 모델 (Mathematical Control Plane)
 
 본 아키텍처가 XLA 컴파일러 최적화 단계를 거쳐 GPU/TPU 레지스터 단에서 단일 융합 커널(Fused Kernel)로 동결되기 위한 핵심 수리 물리 방정식 선언입니다.
 
-### 2.1 분산 통신 지터 마스크 생성 (Global Jitter Mask)
+### 4.1 분산 통신 지터 마스크 생성 (Global Jitter Mask)
 각 분산 노드 $r$의 하드웨어 결함 및 지연 비트 시그널을 조건문 없이 글로벌 비트 논리합 ($\bigvee$)으로 단 한 번에 압축하여 통신 지터 마스크 ($\mathbf{M}_{\mathrm{global}}$)
 를 생성합니다. 하드웨어 레벨에서는 NCCL 링을 멈추는 동기화 인터럽트 펜스 없이 집단 통신 연산인 `jax.lax.psum`을 통해 단일 사이클 내에 일괄 압축됩니다.
 
@@ -110,7 +110,7 @@ $$\mathbf{M}_{\text{global}} = \bigvee_{r=1}^{R} \left( \llbracket \mathbf{S}_{r
 
 ---
 
-### 2.2 ALU 단일 사이클 스트림 정화 (Algebraic Squelch Line)
+### 4.2 ALU 단일 사이클 스트림 정화 (Algebraic Squelch Line)
 행렬곱(Matrix Multiplication)이나 `if-else` 분기 오버헤드 없이, 오직 가속기 ALU의 단일 사이클 원소별 곱셈 ($\odot$)과 덧셈(Multiply-Add)만으로 오염된 스트림을 정화하고 예비 물리 주소선(Backup Rail)으로 버블 프리 우회 바인딩을 수행합니다.
 
 $$\mathbf{\Phi}_{\text{cleansed}} = \mathbf{\Phi}_{\text{raw}} \odot (\mathbf{1} - \mathbf{M}_{\text{global}}) + \mathbf{\Phi}_{\text{backup}} \odot \mathbf{M}_{\text{global}}$$
@@ -121,7 +121,7 @@ $$\mathbf{\Phi}_{\text{cleansed}} = \mathbf{\Phi}_{\text{raw}} \odot (\mathbf{1}
 
 ---
 
-### 2.3 역확산 유체 수송 및 공간 가둠 (Anti-viscous Transport & Boundary Clamping)
+### 4.3 역확산 유체 수송 및 공간 가둠 (Anti-viscous Transport & Boundary Clamping)
 
 최종 정화된 데이터 스트림( $\mathbf{\Phi}$ )은 수치적 충격파(Jitter Spike)를 정류하기 위해 버거스 방정식을 따라 흐릅니다. 이때 일반적인 물리계의 소산( $-$ )과 달리, 분산된 패킷 에너지를 질량 중심(Center of Mass)을 향해 예리하게 수축·응집시키는 **역확산 기하학(Anti-diffusion, $+$ ) 스킴**을 적용하여 후단 디코더의 물리적 변위 역산 해상도를 극대화합니다.
 
@@ -138,7 +138,7 @@ $$\left. \frac{\partial \mathbf{\Phi}}{\partial x} \right|_{x=0} = 0, \quad \lef
 
 ---
 
-### 2.4 0차 모멘트 차원 수축 역산 (Zero-Moment Collapse Decoder)
+### 4.4 0차 모멘트 차원 수축 역산 (Zero-Moment Collapse Decoder)
 
 수축 파동 다양체 공간 전체를 단 하나의 정적 정보 차원으로 환원하기 위해 확률 밀도 함수(PDF) 영역으로의 정류($\max\{\mathbf{\Phi}, 0\}$)를 거친 후, `axis=1` 축을 기준으로 0차 모멘트 적분을 수행합니다.
 
@@ -173,7 +173,7 @@ def mathematical_control_plane_fused(phi_raw, phi_backup, pollution_mask):
 
 ---
 
-## 3. 파이프라인 데이터 플로우 (Data Flow Diagram)
+## 5. 파이프라인 데이터 플로우 (Data Flow Diagram)
 
 ```mermaid
 graph TD
@@ -215,7 +215,7 @@ graph TD
 ```
 ---
 
-## 4. 저장소 구조 및 핵심 소스 코드 (Repository Structure)
+## 6. 저장소 구조 및 핵심 소스 코드 (Repository Structure)
 
 본 프로젝트는 XLA 컴파일러 최적화 단계를 거쳐 가속기 내부 레지스터 단에서 효율적으로 융합(Inline Fused)되도록 연계된 삼위일체 파이프라인 구조를 지향합니다.
 
@@ -231,23 +231,23 @@ graph TD
 
 ---
 
-## 5. 실행 및 가속기 하드웨어 검증 (Quick Start & Benchmark)
+## 7. 실행 및 가속기 하드웨어 검증 (Quick Start & Benchmark)
 
 분산 가속기 클러스터 환경이 없더라도, JAX 가상 디바이스 백엔드를 활용해 하드웨어 레지스터 퓨전 파이프라인의 **배리어 0.0% / 스톨 제로 복원력**을 즉시 검증할 수 있습니다.
 
-### 5.1 패키지 의존성 설치
+### 7.1 패키지 의존성 설치
 ```bash
 pip install jax jaxlib
 ```
 
-### 5.2 하드웨어 통합 시뮬레이터 구동
+### 7.2 하드웨어 통합 시뮬레이터 구동
 레포지토리에 포함된 하네스를 실행하여 네트워크 난류(지터 및 Inf 충격파 파손)가 주입되었을 때의 대수적 핫스왑 우회 및 결정론적 복원 정밀도를 테스트합니다.
 
 ```bash
 python fng_cluster_mock_mesh.py
 ```
 
-### 5.3 벤치마크 테스트 결과 예시 (System Log)
+### 7.3 벤치마크 테스트 결과 예시 (System Log)
 정상적으로 실행되면 XLA 컴파일러가 세 개의 커널(Ingress, Routing, Decoding) 사이의 임시 메모리 버퍼를 완벽히 소멸시키고, 단일 온칩 회로로 고정하여 다음과 같은 관제 지표를 출력합니다.
 
 ```text
@@ -283,7 +283,7 @@ python fng_cluster_mock_mesh.py
 ```
 ---
 
-# 유무선 토폴로지 이원화 배포 아키텍처 (Static V1 vs Stateful Dynamic V2 Paths)
+# 🚀 유무선 토폴로지 이원화 배포 아키텍처 (Static V1 vs Stateful Dynamic V2 Paths)
 
 Fluidic Network Grid (FNG) V3는 물리적 전송 인프라의 전산학적 특성에 맞춰 제어 평면을 완전히 이원화(Decoupling)하여 구동합니다. 가속기 컴파일러(XLA)의 메모리 뷰 직진성을 극대화하는 **V1 정적 퓨전 엔진(Static Engine)**과, 가혹한 현실 무선 재난 환경에서 미분 사슬을 생존시키는 **V2 동적 피드백 엔진(Stateful Engine)**을 단 하나의 하드웨어 환경 변수로 스위칭할 수 있습니다.
 
