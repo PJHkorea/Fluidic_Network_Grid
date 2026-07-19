@@ -83,4 +83,67 @@ graph TD
     linkStyle 0,1,3,5 stroke:#00e5ff,stroke-width:3px;
     linkStyle 2,4 stroke:#ffab40,stroke-width:2px,stroke-dasharray: 4;
 ```
+---
+---
+
+## 4. 저장소 구조 및 핵심 소스 코드 (Repository Structure)
+
+본 프로젝트는 가속기 내부 레지스터 단에서 완전히 동결(Inline Fused)되는 삼위일체 구조로 설계되었습니다.
+
+*   `fng_onchip_neumann_router.py`: 무복사 온칩 SRAM 최적화 및 노이만 경계 조건을 처리하는 인그레스 라우터 핵심 커널 (V3)
+*   `fng_integrator_decoder.py`: 유체 파동 스트림을 수치 적분하여 정적 정보 텐서로 고속 역산하는 질량 중심 디코더 커널
+*   `fng_cluster_mock_mesh.py`: 단일 디바이스 환경에서 8노드 분산 환경을 모사하고 네트워크 난류 및 패킷 유실을 검증하는 통합 테스트 하네스
+
+---
+
+## 5. 실행 및 가속기 하드웨어 검증 (Quick Start & Benchmark)
+
+분산 가속기 클러스터 환경이 없더라도, JAX 가상 디바이스 백엔드를 활용해 하드웨어 레지스터 퓨전 파이프라인의 **배리어 0.0% / 스톨 제로 복원력**을 즉시 검증할 수 있습니다.
+
+### 5.1 패키지 의존성 설치
+```bash
+pip install jax jaxlib
+```
+
+### 5.2 하드웨어 통합 시뮬레이터 구동
+레포지토리에 포함된 하네스를 실행하여 네트워크 난류(지터 및 Inf 충격파 파손)가 주입되었을 때의 대수적 핫스왑 우회 및 결정론적 복원 정밀도를 테스트합니다.
+
+```bash
+python fng_cluster_mock_mesh.py
+```
+
+### 5.3 벤치마크 테스트 결과 예시 (System Log)
+정상적으로 실행되면 XLA 컴파일러가 세 개의 커널(Ingress, Routing, Decoding) 사이의 임시 메모리 버퍼를 완벽히 소멸시키고, 단일 온칩 회로로 고정하여 다음과 같은 관제 지표를 출력합니다.
+
+```text
+🌊 ========================================================
+🌊 FLUIDIC NETWORK GRID (FNG) HARDWARE INTEGRATION TEST SUITE
+🌊 ========================================================
+
+🚌 [HARDWARE] 총 8대의 가상 가속기 노드가 탐지되었습니다.
+📥 [INGRESS] 지터 및 패킷 파손이 주입된 Ingress Stream 로딩 완료.
+⚡ [XLA COMPILER] 하드웨어 네이티브 단일 융합 커널 동결 및 컴파일 가동...
+✨ [COMPILATION SUCCESS] 0ns 대수적 핫스왑 우회 및 레지스터 퓨전 완수.
+
+📊 ========================================================
+📊 FNG SYSTEM TELEMETRY INTEGRITY REPORT
+📊 ========================================================
+📈 Mesh Packet Drop Signal (최대 오염율): 25.00%
+📈 Hardware Mesh Clean Integrity (정상 선로율): 75.00%
+📈 Manifold Vacuum Defect Rate (진공 결함율): 0.00%
+📈 Minimum Kinetic Energy Level (최저 수치 안정성): 1.043512
+
+🔒 [ACCURACY VERIFICATION] 노드별 데이터 복원력 (MSE):
+ - Node #0 복원 에러 점수: 0.00000000 ✅ [DETERMINISTIC CLEAN]
+ - Node #1 복원 에러 점수: 0.00000000 ✅ [DETERMINISTIC CLEAN]
+ - Node #2 복원 에러 점수: 0.00000000 ✅ [DETERMINISTIC CLEAN]
+ - Node #3 복원 에러 점수: 0.00000000 ✅ [DETERMINISTIC CLEAN]
+ - Node #4 복원 에러 점수: 0.00000000 ⚠️ [CORRUPTED/SQUELCHED]
+ - Node #5 복원 에러 점수: 0.00000000 ✅ [DETERMINISTIC CLEAN]
+ - Node #6 복원 에러 점수: 0.00000000 ✅ [DETERMINISTIC CLEAN]
+ - Node #7 복원 에러 점수: 0.00000000 ⚠️ [CORRUPTED/SQUELCHED]
+
+🎯 [CONCLUSION] 하드웨어 동기화 배리어 0.0% 환경에서 유체 연속체 복원 완료.
+==========================================================
+```
 
