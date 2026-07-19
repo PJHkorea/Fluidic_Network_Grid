@@ -121,47 +121,51 @@ $$\mathbf{\Phi}_{\text{cleansed}} = \mathbf{\Phi}_{\text{raw}} \odot (\mathbf{1}
 ---
 
 ### 2.3 역확산 유체 수송 및 공간 가둠 (Anti-viscous Transport & Boundary Clamping)
-최종 정화된 데이터 스트림 ($\mathbf{\Phi}$)은 수치적 충격파(Jitter Spike)를 정류하기 위해 버거스 방정식을 따라 흐릅니다. 이때 일반적인 물리계의 소산($-$)과 달리, 분산된 파동 에너지를 질량 중심(Center of Mass)을 향해 예리하게 세우는 역확산 기하학(Anti-diffusion, $+$) 스킴을 적용하여 후단 디코더의 인덱스 역산 해상도를 극대화합니다.
+
+최종 정화된 데이터 스트림( $\mathbf{\Phi}$ )은 수치적 충격파(Jitter Spike)를 정류하기 위해 버거스 방정식을 따라 흐릅니다. 이때 일반적인 물리계의 소산( $-$ )과 달리, 분산된 패킷 에너지를 질량 중심(Center of Mass)을 향해 예리하게 수축·응집시키는 **역확산 기하학(Anti-diffusion, $+$ ) 스킴**을 적용하여 후단 디코더의 물리적 변위 역산 해상도를 극대화합니다.
 
 $$\frac{\partial \mathbf{\Phi}}{\partial t} + \mathbf{\Phi} \frac{\partial \mathbf{\Phi}}{\partial x} = + \sigma \frac{\partial^{2} \mathbf{\Phi}}{\partial x^{2}}$$
 
-역확산으로 인한 수치적 폭발(Explosion)은 격자 양 끝단에서 가상 격자점(Ghost Cell) 대칭 모사를 통해 기울기를 0으로 제어하는 노이만 경계 조건(Neumann Clamping)을 통과하며 물리적으로 완벽히 가두어지고 수렴 안정성을 확정 짓습니다.
+역확산으로 인해 우려되는 수치적 폭발(Explosion)은 공간 격자의 양 끝단에서 가상 격자점(Ghost Cell) 대칭 모사를 통해 물리적 기울기를 `0`으로 제어하는 **노이만 경계 조건(Neumann Clamping)**을 통과하며 물리적으로 완벽히 복사 차단(Bounded)되고 수렴 안정성을 확정 짓습니다.
 
 $$\left. \frac{\partial \mathbf{\Phi}}{\partial x} \right|_{x=0} = 0, \quad \left. \frac{\partial \mathbf{\Phi}}{\partial x} \right|_{x=L} = 0$$
 
-*   **$\sigma$**: 파동의 형태를 중심부로 수축시키는 역확산 계수 ($\sigma > 0$)
-*   **$L$**: 수송 버스 공간 다양체의 유한 물리적 경계 길이
+*   **$\sigma$** : 파동의 형태를 중심부로 예리하게 응집시키는 온칩 역확산 계수 ( $\sigma > 0$ )
+*   **$L$** : 가속기 메모리 레일 상에 매핑된 수송 버스 공간 다양체의 유한 물리적 경계 길이
+
+
 
 ---
 
 ### 2.4 0차 모멘트 차원 수축 역산 (Zero-Moment Collapse Decoder)
-수축 파동 다양체 공간 전체를 단 하나의 정적 정보 차원으로 환원하기 위해 확률 밀도 함수(PDF) 영역으로의 정류($\max(\mathbf{\Phi}, 0)$)를 거친 후, `axis=1` 축을 기준으로 0차 모멘트 적분을 수행합니다.
 
-런타임 동적 인덱싱 스톨(Dynamic Indexing Stall)을 유발하는 Gather 슬라이싱을 축출하고, 유체 질량 보존 법칙에 따라 총 질량 자체를 정적 정보 텐서 ($\mathbf{T}_{\text{static}}$)로 인플레이스 뷰 수축 복원합니다.
+수축 파동 다양체 공간 전체를 단 하나의 정적 정보 차원으로 환원하기 위해 확률 밀도 함수(PDF) 영역으로의 정류($\max\{\mathbf{\Phi}, 0\}$)를 거친 후, `axis=1` 축을 기준으로 0차 모멘트 적분을 수행합니다.
+
+*   **PDF 정류의 수리 물리적 필연성:** 역확산($+\sigma$) 및 노이만 경계 클램핑을 거치며 정류된 유체 파동은 수치해석적 근사 과정에서 미세한 음수 변위를 가질 수 있습니다. 만약 정류 없이 적분할 경우 음수 에너지가 총 질량을 상쇄시켜 원래 정보가 왜곡되므로, 비트 마스크 수준의 초고속 원소별 ReLU 연산을 통해 에너지를 양(Positive)의 공간밀도 함수 영역으로 강제 바인딩합니다.
+
+런타임 동적 인덱싱 스톨(Dynamic Indexing Stall)을 유발하는 Gather 슬라이싱(특정 인덱스 주소를 콕 찝어 샘플링하는 연산)을 완전히 축출하고, 유체 질량 보존 법칙에 따라 보존된 총 질량 자체를 정적 정보 텐서 ($\mathbf{T}_{\text{static}}$)로 인플레이스 뷰 수축 복원합니다. 이로써 분산 가속기 간의 메모리 정렬(Memory Alignment) 파괴를 원천 방어합니다.
 
 $$\mathbf{T}_{\text{static}} = \int_{0}^{L} \max(\mathbf{\Phi}, 0) \, dx$$
 
 
+
+
 ```python
 # 2.4 수학적 제어 평면의 XLA 컴파일러 최적화 연산 모사
-import jax
-import jax.numpy as jnp
-
 @jax.jit
 def mathematical_control_plane_fused(phi_raw, phi_backup, pollution_mask):
-    # 2.1 Global Jitter Mask (조건문 없는 글로벌 비트 psum 압축)
-    global_mask = jax.lax.psum(pollution_mask, axis_name='nodes')
+    # fluidic_mesh 기준 psum을 통한 비동기 정보 동기화
+    global_mask = jax.lax.psum(pollution_mask, axis_name='fluidic_mesh')
     m_global = (global_mask > 0).astype(jnp.float32)
     
-    # 2.2 Algebraic Squelch Line (ALU 단일 사이클 Fused Multiply-Add)
+    # 데이터 오염 보정 및 물리 필드 갱신
     phi_cleansed = phi_raw * (1.0 - m_global) + phi_backup * m_global
     
-    # 2.3 & 2.4 Zero-Moment Collapse (유체 경계 제어 후 0차 모멘트 차원 수축)
-    # 정형 격자(dx=1) 상에서의 수치 적분 및 PDF 정류 모사
-    pdf_stream = jnp.maximum(phi_cleansed, 0.0)
-    t_static = jnp.sum(pdf_stream, axis=1) # axis=1 정적 차원 축소 연산
-    
+    # 0차 모멘트 차원 수축(PDF 정류 및 적분) 수행
+    pdf_stream = jnp.maximum(phi_cleansed, 0.0) # ReLU 정류
+    t_static = jnp.sum(pdf_stream, axis=1) # 0차 모멘트 적분
     return t_static
+
 ```
 
 
