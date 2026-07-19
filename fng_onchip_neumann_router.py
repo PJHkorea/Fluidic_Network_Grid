@@ -83,7 +83,6 @@ def execute_fluidic_network_grid_ingress_v3(
     # 수치적 적분 평탄화(Zero-Moment Collapse): 전단에서 강제로 밀어올린 미세한 고주파 요동과 
     # 수치적 역효과들은 후단 디코더의 axis=1 축소 적분 단계를 거치며 완전히 소산 및 환원되므로 역전파 안정성이 사수됩니다.
     isolated_drop_rate = jax.lax.stop_gradient(jnp.max(is_corrupted_lane))
-    isolated_drop_rate = jax.lax.stop_gradient(jnp.max(is_corrupted_lane))
     
     fng_telemetry = {
         "fluidic_grid_drop_rate": isolated_drop_rate,
