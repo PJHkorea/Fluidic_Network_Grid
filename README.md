@@ -1,11 +1,20 @@
 # 🌊 Technical Specification: Fluidic Network Grid (FNG) V3
 > **Hardware Barrier-Free & High-Order Moment Asymmetric Correction Architecture for Ultra-Scale Parallel Computing**
-> 本 문서는 XLA 컴파일러 하위 레지스터 단에서 단일 융합 커널(Fused Kernel)로 동결되는 하드웨어 네이티브 '완전 비동기 유동적 네트워크 메시 아키텍처'의 최신 V3 기술 명세 및 수리 물리 고차 모멘트 제어 모델을 다룹니다.
+> 해당 문서는 XLA 컴파일러 하위 레지스터 단에서 단일 융합 커널(Fused Kernel)로 동결되는 하드웨어 네이티브 '완전 비동기 유동적 네트워크 메시 아키텍처'의 최신 V3 기술 명세 및 수리 물리 고차 모멘트 제어 모델을 다룹니다.
 
 ---
 
 # 🚀 무중단 분산 분기 제어 및 고차 왜도 상쇄 어댑터 아키텍처
 > **실전 세계의 비대칭 롱테일 지터, 가혹한 패킷 유실, 기지국 완전 블랙아웃 환경에서도 단 1clocks의 하드웨어 스톨 없이 원형 이진 정보(0/1 부호)를 발굴해내고 LLM 신경망 역전파 미분 사슬(Autograd)을 사수하는 가속기-신경망 공동 설계(Co-Design) 통신 평면 명세서**
+
+---
+
+## 🏛️ 하드웨어-신경망 공동 설계(Co-Design) 삼위일체 인프라 수직 상호 참조
+본 프로젝트는 제가 상용 거대 언어 모델(LLM)의 분산 서빙 가속을 위해 설계한 3대 핵심 실리콘-신경망 수직 통합 계통 자산의 일원이며, 각각의 repositories가 연결되어있으니 참조하여 봐주시면 감사드리겠습니다
+
+*   **[Fluidic_Network_Grid (FNG) V3]**: NCCL All-Reduce 동기화 배리어를 대수적으로 우회하고, 가혹한 패킷 유실 및 무선 노이즈 환경에서 시변 지터를 소수점 8자리 정밀도로 정류하는 가속기-통신 하드웨어 네이티브 제어 평면 레이어입니다.
+*   **[Forward_Only_Autograd_Free_PINN]**: GPU 워프(Warp) 수준의 레지스터 셔플 기반 무분기 공간 차분 기술을 적용하여, FNG V3 스트림의 3차 모멘트 왜도(\(m_3/m_2\)) 대수적 약분 소거 및 1-Cycle FMA 가중치 자율 평형을 완결하는 수리 물리 연산 코어 엔진입니다.
+*   **[Continuous_Wave_Field_LLM_Brain v5.0]**: DLPack 통합 메모리 표준 규격 인터페이스를 기반으로 PyTorch 가중치 버퍼와 JAX/XLA 가속 장치 간의 0ns 무복사 데이터 교환을 관류 인터록하여 후단 Llama 어텐션 코어로 청정 다양체 텐서를 전송하는 하이브리드 가이드 레이어입니다.
 
 ---
 
