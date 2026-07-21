@@ -4,66 +4,87 @@ from jax.experimental.shard_map import shard_map
 from jax.sharding import Mesh, PartitionSpec as P
 from typing import Tuple, Dict
 
-# [NEW] 앞서 리팩토링을 마친 개량형 라우터 및 고차 모멘트 디코더 커널 이식
+# [KR] 앞서 리팩토링을 마친 개량형 라우터 및 고차 모멘트 디코더 커널 이식
+# [EN] Import the refactored upgraded router and higher-order moment decoder kernels
 from fng_onchip_neumann_router import execute_fluidic_network_grid_ingress_v3_upgraded
 from fng_integrator_decoder import execute_fluidic_manifold_decoder
 
 def orchestrate_fluidic_network_grid_upgraded(
     global_packet_stream: jax.Array,        # Global Shape: [Total_Nodes, Volatile_Time_Jitter, Feature_Dim]
     global_cold_standby_pool: jax.Array,   # Global Shape: [Total_Nodes, Volatile_Time_Jitter, Feature_Dim]
-    devices_mesh: Mesh,                     # 사전에 정의된 물리 가속기 토폴로지 메시 객체
+    devices_mesh: Mesh,                     # [KR] 사전에 정의된 물리 가속기 토폴로지 메시 객체 / [EN] Pre-defined physical accelerator topology mesh object
     viscosity_sigma: float = 0.00003125,
-    integration_epsilon: float = 1e-6       # 질문자님 명세에 맞춘 3차 왜도 보정용 안전 계수 동기화
+    integration_epsilon: float = 1e-6       # [KR] 상위 명세에 매칭된 3차 왜도 보정용 하한 안전 계수 / [EN] Lower safety margin matched to the specification for 3rd-order skewness correction
 ) -> Tuple[jax.Array, Dict[str, jax.Array]]:
     """
     Fluidic Network Grid Hardware-Native Orchestrator - V4 (Multi-Moment Concat)
-    shard_map 내부에서 라우터와 고차 모멘트 디코더를 단일 컴파일 그래프로 묶어동결함으로써,
-    분산 노드 간 메모리 교환 없이 0ns만에 고차 왜도 상쇄 디지털 복원을 완수합니다.
+    
+    [KR] shard_map 컨텍스트 내부에서 라우터와 고차 모멘트 디코더를 단일 HLO 연산 그래프로 묶어 동결 컴파일함으로써,
+         분산 노드 간 데이터 이동 오버헤드 전혀 없이 지연 없는 고차 왜도 상쇄 디지털 복원을 완수합니다.
+    [EN] Compiles the router and higher-order moment decoder into a single unified HLO operational graph within shard_map,
+         achieving deterministic sign-manifold reconstruction with absolute zero inter-node data-transfer latencies.
     """
+
     
-    # [1] 가속기 토폴로지에서 'fluidic_mesh' 축의 물리 장치 수 확인
+       # --------------------------------------------------------------------------------------------
+    # [KR] [1] 가속기 토폴로지에서 'fluidic_mesh' 축의 물리 장치 수 확인
+    # [EN] [1] Verify Physical Device Counts along the 'fluidic_mesh' Axis in Accelerator Topology
+    # --------------------------------------------------------------------------------------------
     mesh_axis_name = "fluidic_mesh"
-    assert mesh_axis_name in devices_mesh.axis_names, f"물리 장치 토폴로지에 '{mesh_axis_name}' 축 선언이 필요합니다."
+    assert mesh_axis_name in devices_mesh.axis_names, f"The physical device topology requires the '{mesh_axis_name}' axis declaration."
     
-    # [2] shard_map 데코레이터를 이용한 하드웨어 도메인 매핑 정의
-    # 입력과 출력의 스펙 구조를 개량된 다중 딕셔너리 구조에 맞춰 레지스터 락킹을 수행합니다.
+    # --------------------------------------------------------------------------------------------
+    # [KR] [2] shard_map 데코레이터를 이용한 하드웨어 도메인 매핑 정의
+    # [EN] [2] Define Hardware Domain Mapping utilizing shard_map Directive
+    # --------------------------------------------------------------------------------------------
+    # [KR] 입력과 출력의 스펙 구조를 개량된 다중 딕셔너리 레이아웃에 맞춰 하드웨어 상향 동기화를 수행합니다.
+    # [EN] Enforce hardware sharding layout synchronization tailored to the upgraded multi-dictionary layout for inputs and outputs.
     @shard_map(
         mesh=devices_mesh,
         in_specs=(P(mesh_axis_name, None, None), P(mesh_axis_name, None, None)),
         out_specs=(
-            P(mesh_axis_name, None), # 최종 출력인 static_information_tensor는 지터(axis=1) 축이 완전히 평탄화 압축됨!
+            P(mesh_axis_name, None), # [KR] 최종 출력인 static_information_tensor는 지터(axis=1) 축이 완전히 수직 수축됨! / [EN] The temporal jitter dimension (axis=1) is vertically collapsed for static_information_tensor output!
             {
-                "fluidic_grid_drop_rate": P(None),      # 텔레메트리는 전체 분산 시스템의 단일 전역 지표로 수렴
+                "fluidic_grid_drop_rate": P(None),      # [KR] 텔레메트리는 전체 분산 시스템의 단일 전역 지표로 수렴 / [EN] Telemetry metrics converge into global scalar values across the topology
                 "hardware_mesh_integrity": P(None),
-                "manifold_vacuum_rate": P(None),        # [NEW] 디코더 수치 안정성 지표 동시 수집
+                "manifold_vacuum_rate": P(None),        # [KR] [NEW] 디코더 수치 안정성 지표 동시 수집 / [EN] [NEW] Concurrent collection of decoder numerical stability metrics
                 "decoder_numerical_stability": P(None)
             }
         )
     )
     def fng_hardware_bound_kernel(local_packet, local_pool):
         """
-        물리 가속기 코어 SRAM 내부에서 라우터와 디코더가 융합 파이프라인으로 관통하는 코어
+        [KR] 물리 가속기 코어 SRAM 내부에서 라우터와 디코더가 융합 파이프라인으로 관통하는 코어 커널
+        [EN] Core execution kernel where the router and decoder are inline-fused within the accelerator SRAM pipeline
         """
-        # 1) 고차 모멘트 컨텍스트 라우터 가동 -> 다중 주소선 다발(bundle) 출력
+        # 1) [KR] 고차 모멘트 컨텍스트 라우터 실행 -> 다중 주소선 스트림 집합(bundle) 출력
+        # 1) [EN] Invoke higher-order moment context router -> Emits multi-line address stream bundles
         router_outputs, router_telemetry = execute_fluidic_network_grid_ingress_v3_upgraded(
             raw_packet_stream=local_packet,
             cold_standby_address_pool=local_pool,
             viscosity_sigma=viscosity_sigma
         )
         
-        # 2) 0ns 무복사 레일 바인딩 체인 가동
-        # 라우터가 토출한 포인터 다발을 그대로 질문자님이 최적화 마감하신 디코더로 논스톱 바이패스!
+        # 2) [KR] 제로 카피(Zero-Copy) 레일 바인딩 체인 활성화
+        #      라우터가 토출한 포인터 집합을 그대로 최적화 마감된 디코더로 지연 없이 전송합니다.
+        # 2) [EN] Activate Zero-Copy Reference Binding Chain
+        #      Provides a latency-free handoff of the pointer bundles generated by the router straight into the optimized decoder layer.
         static_information_tensor, decoder_telemetry = execute_fluidic_manifold_decoder(
             router_outputs=router_outputs,
             integration_epsilon=integration_epsilon
         )
+
         
-        # 3) 글로벌 분산 관제 시스템용 텔레메트리 병합
+        # 3) [KR] 글로벌 분산 관제 시스템용 텔레메트리 병합
+        # 3) [EN] Merge telemetry metrics for the global distributed monitoring system
         combined_telemetry = {**router_telemetry, **decoder_telemetry}
         
         return static_information_tensor, combined_telemetry
 
-    # [3] 물리 토폴로지 내부 컨텍스트 진입 및 단일 융합 분산 그래프 동결
+    # --------------------------------------------------------------------------------------------
+    # [KR] [3] 물리 토폴로지 내부 컨텍스트 진입 및 단일 융합 분산 HLO 그래프 집행
+    # [EN] [3] Enter Physical Topology Context & Execute the Unified Fused Distributed HLO Graph
+    # --------------------------------------------------------------------------------------------
     with devices_mesh:
         distributed_static_tensor, global_telemetry = fng_hardware_bound_kernel(
             global_packet_stream, 
