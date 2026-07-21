@@ -1,5 +1,13 @@
 # 🌊 Technical Specification: Fluidic Network Grid (FNG) V3
-> **Hardware Barrier-Free & High-Order Moment Asymmetric Correction Architecture for Ultra-Scale Parallel Computing**
+**Hardware Barrier-Free & High-Order Moment Asymmetric Correction Architecture for Ultra-Scale Parallel Computing**
+
+> 📐 **Looking for Deep-Dive Tensor Geometry?** 
+> For a rigorous, hardware-level breakdown of how the volatile sequence dimensions are collapsed inside the registers to achieve static $O(1)$ complexity, please review our sub-specification: **[README_dim.md (Geometric Dimension Control Specification)](./README_dim.md)**.
+
+---
+
+This specification delivers the V3 technical framework and mathematical control models of a hardware-native, fully asynchronous fluidic network mesh architecture. Optimized via the JAX/XLA compiler, this system freezes complex communication routines into a single fused register-level kernel.
+
 > This specification delivers the V3 technical framework and mathematical control models of a hardware-native, fully asynchronous fluidic network mesh architecture. Optimized via the JAX/XLA compiler, this system freezes complex communication routines into a single fused register-level kernel.
 
 ---
