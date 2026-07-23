@@ -92,7 +92,7 @@ class FngInterleavedLlamaAttention:
             )
         return fused_stream_seq
 
-        def __call__(
+            def __call__(
         self, 
         local_q: jax.Array,           # Shape: [Nodes, Head_Dim, Seq_Len_Q] 
         local_k: jax.Array,           # Shape: [Nodes, Volatile_Time_Jitter, Feature_Dim] [KR] Key 캐시 원시 스트림 / [EN] Raw Key cache stream
@@ -109,7 +109,25 @@ class FngInterleavedLlamaAttention:
         [EN] Systematically eliminating communication wait stalls depending on the designated deploy_env flag,
              this method computes the final Attention matrix multiplication backed by atomic reconstruction and gradient isolation.
         """
+        # --------------------------------------------------------------------------------
+        # [KR] [하드웨어 가드레일] 컴파일 타임 정적 셰이프 및 분산 메시 축 데이터 정합성 검증
+        #      가속기 런타임 제로-코스트(Zero-Cost)를 만족하며 차원 불일치 휴먼 에러를 선제 차단합니다.
+        # [EN] [Hardware Guardrails] Compile-time static shape and distributed mesh axis verification.
+        #      Guarantees zero-cost overhead at runtime while pre-emptively preventing dimensional misalignment.
+        # --------------------------------------------------------------------------------
+        assert local_k.shape == local_v.shape, (
+            f"[🚨 FNG DIMENSION MISMATCH] Key layout {local_k.shape} and Value layout {local_v.shape} must be perfectly symmetric."
+        )
+        assert local_q.shape[0] == local_k.shape[0], (
+            f"[🚨 FNG TOPOLOGY MISMATCH] Distributed node dimension of Query ({local_q.shape[0]}) does not match Key ({local_k.shape[0]})."
+        )
+        assert local_q.shape[-1] == local_k.shape[-1], (
+            f"[🚨 FNG GEOMETRY MISMATCH] Feature_Dim mismatch detected between Query ({local_q.shape[-1]}) and Key ({local_k.shape[-1]}). Matrix multiplication will stall."
+        )
+        # --------------------------------------------------------------------------------
+
         target_dtype = local_q.dtype
+
         # ----------------------------------------------------------------------------------------
         # [KR] [Phase 1] 런타임 인프라 환경 변수별 KV 캐시 FNG 관류 디스패칭
         # [EN] [Phase 1] Runtime Infrastructure Dispatching of KV Cache via FNG Core Lanes
@@ -228,6 +246,30 @@ if __name__ == "__main__":
     volatile_time_jitter = 24
     feature_dim = 16
     head_dim = 8
+
+    # 실무 결합 시: 아래 더미 변수(dummy) 자리에 실제 LLAMA 모델의 Activation 텐서를 매핑하십시오.
+    q_dummy = jnp.ones((num_devices, head_dim, feature_dim)) 
+    k_dummy = jnp.ones((num_devices, volatile_time_jitter, feature_dim)) 
+    v_dummy = jnp.ones((num_devices, volatile_time_jitter, feature_dim)) 
+    standby_dummy = jnp.zeros((num_devices, volatile_time_jitter, feature_dim)) # 예비 물리 주소 레일 버퍼
+
+    # --------------------------------------------------------------------------------
+    # 📢 [INTEGRATION GUIDE: SHAPE GUARDRAILS] 정적 기하학 차원 검증 가드레일
+    # [KR] JAX 트레이싱 단계에서 내부 결합 규격을 선제 검증하며, 컴파일 후 런타임 병목은 0%입니다.
+    # [EN] Compile-time static shape alignment and topology layout verification.
+    #      Operates at zero runtime cost within the HLO compiler plane to enforce structural integrity.
+    # --------------------------------------------------------------------------------
+    assert k_dummy.shape == v_dummy.shape, (
+        f"[🚨 FNG CORE ERROR] Key layout {k_dummy.shape} and Value layout {v_dummy.shape} must be perfectly symmetric."
+    )
+    assert q_dummy.shape[0] == num_devices, (
+        f"[🚨 FNG MESH ERROR] Query node dimension ({q_dummy.shape[0]}) does not match designated physical mesh size ({num_devices})."
+    )
+    assert q_dummy.shape[-1] == k_dummy.shape[-1], (
+        f"[🚨 FNG GEOMETRY ERROR] Terminal feature axis (Feature_Dim: {q_dummy.shape[-1]} vs {k_dummy.shape[-1]}) is unaligned. Fused matrix multiplication will fail."
+    )
+    # --------------------------------------------------------------------------------
+
     
     # 실무 결합 시: 아래 더미 변수(dummy) 자리에 실제 LLAMA 모델의 Activation 텐서를 매핑하십시오.
     q_dummy = jnp.ones((num_devices, head_dim, feature_dim)) 
