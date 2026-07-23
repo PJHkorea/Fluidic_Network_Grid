@@ -151,7 +151,7 @@ class FngInterleavedLlamaAttention:
                 initial_state = (init_sigma, init_tensor)
 
                 
-                     # ------------------------------------------------------------------------------------
+            # ------------------------------------------------------------------------------------
             # [KR] 오케스트레이터 스캔 루프 통과 (시퀀스 축 차원 확장 및 축소 관류 제어)
             # [EN] Orchestrator Scan Loop Execution (Dimensional Expansion & Contraction Control)
             # ------------------------------------------------------------------------------------
@@ -211,6 +211,11 @@ if __name__ == "__main__":
     # 📢 [INTEGRATION GUIDE: STEP 1] 인프라 및 가속기 토폴로지 바인딩
     # - 실제 상용 시스템과 결합할 때는 내부 클러스터의 디바이스 Mesh(XLA Devices)를 생성자에 주입해야 합니다.
     # - 아래의 os.environ 및 디바이스 모사는 단일 호스트 테스트용 가상 환경 설정입니다.
+    # [INTEGRATION GUIDE: STEP 1] Infrastructure and Accelerator Topology Binding
+    # - When integrating with actual production systems, the Device Mesh (XLA Devices) 
+    #   of the internal cluster must be injected into the constructor.
+    # - The os.environ and device simulation below are virtual environment configurations 
+    #   intended solely for single-host testing.
     # --------------------------------------------------------------------------------
     # [KR] 8개 가속기 노드 메시 토폴로지 구성 모사 (XLA 가상화 플랫폼 연동 체크)
     #      단일 호스트 환경에서도 8대 가속기 링 컴파일이 가동되도록 백엔드 가상화 설정을 내부적으로 초기화합니다.
@@ -238,9 +243,16 @@ if __name__ == "__main__":
     # 📢 [INTEGRATION GUIDE: STEP 2] 상위 LLAMA 내부 모델 텐서 매핑 가이드
     # - 내부 모델(예: Llama Attention 블록)과 결합 시, 아래의 데이터 구조 및 차원(Shape) 규격을 반드시 준수해야 합니다.
     # - Query(q), Key(k), Value(v) 텐서의 마지막 축(Feature_Dim)은 컴파일러 최적화를 위해 완전히 일치해야 합니다.
+    # 📢 [INTEGRATION GUIDE: STEP 2] Tensor Mapping Guide for Internal Parent LLAMA Models
+    # - When integrating with internal models (e.g., Llama Attention block), the data structure 
+    #   and dimension (Shape) specifications below must be strictly followed.
+    # - The last axis (Feature_Dim) of the Query(q), Key(k), and Value(v) tensors must match 
+    #   exactly to enable compiler optimization.
     # --------------------------------------------------------------------------------
     # - Query: [Nodes, Head_Dim, Feature_Dim] -> [8, 8, 16]
     # - Key/Value 원시 스트림: [Nodes, Volatile_Time_Jitter, Feature_Dim] -> [8, 24, 16] (현실적 지터 격자 구성)
+    # - Query: [Nodes, Head_Dim, Feature_Dim] -> [8, 8, 16]
+    # - Key/Value Raw Streams: [Nodes, Volatile_Time_Jitter, Feature_Dim] -> [8, 24, 16] (Realistic jitter grid configuration)
     # [KR] 마지막 축(Feature_Dim=16)을 정밀 정렬하여 상위 행렬곱 차원 불일치 현상을 선제적으로 방어합니다.
     # [EN] Explicitly align the terminal axis (Feature_Dim=16) to pre-emptively prevent dimensional misalignment during upstream matrix multiplication loops.
     volatile_time_jitter = 24
@@ -248,6 +260,7 @@ if __name__ == "__main__":
     head_dim = 8
 
     # 실무 결합 시: 아래 더미 변수(dummy) 자리에 실제 LLAMA 모델의 Activation 텐서를 매핑하십시오.
+    # For Production Integration: Map the actual LLAMA model's Activation tensor into the dummy variable placeholder below.
     q_dummy = jnp.ones((num_devices, head_dim, feature_dim)) 
     k_dummy = jnp.ones((num_devices, volatile_time_jitter, feature_dim)) 
     v_dummy = jnp.ones((num_devices, volatile_time_jitter, feature_dim)) 
@@ -255,6 +268,7 @@ if __name__ == "__main__":
 
     # --------------------------------------------------------------------------------
     # 📢 [INTEGRATION GUIDE: SHAPE GUARDRAILS] 정적 기하학 차원 검증 가드레일
+    # [INTEGRATION GUIDE: SHAPE GUARDRAILS] Static Geometry Dimension Verification Guardrails
     # [KR] JAX 트레이싱 단계에서 내부 결합 규격을 선제 검증하며, 컴파일 후 런타임 병목은 0%입니다.
     # [EN] Compile-time static shape alignment and topology layout verification.
     #      Operates at zero runtime cost within the HLO compiler plane to enforce structural integrity.
@@ -272,6 +286,7 @@ if __name__ == "__main__":
 
     
     # 실무 결합 시: 아래 더미 변수(dummy) 자리에 실제 LLAMA 모델의 Activation 텐서를 매핑하십시오.
+    # For production integration: Replace the dummy variable below with the actual LLAMA model's activation tensor.
     q_dummy = jnp.ones((num_devices, head_dim, feature_dim)) 
     k_dummy = jnp.ones((num_devices, volatile_time_jitter, feature_dim)) 
     v_dummy = jnp.ones((num_devices, volatile_time_jitter, feature_dim)) 
@@ -285,12 +300,17 @@ if __name__ == "__main__":
     # 📢 [INTEGRATION GUIDE: STEP 3] 하드웨어 배포 환경별 호출 스위칭 (deploy_env)
     # - 내부 시스템 인프라가 '고정 유선 데이터센터'인지, '에지/무선 단선 위기 환경'인지에 따라 
     #   인수를 다르게 지정하여 완전히 독립된 하드웨어 최적화 패스(Pass)를 가동합니다.
+    # 📢 [INTEGRATION GUIDE: STEP 3] Hardware Deployment Environment-Specific Call Switching (deploy_env)
+    # - Activates completely independent hardware optimization passes by specifying different 
+    #   arguments depending on whether the internal system infrastructure is a 'Fixed Wired Data Center' 
+    #   or an 'Edge/Wireless Disconnection-Prone Environment.'
     # --------------------------------------------------------------------------------
     
     # 1) [KR] V1 유선 모드 데이터센터 관류 테스트
     # 1) [EN] Test 1: V1 Wired Datacenter Backbone Interconnect Stream-Through Validation
     print("\n[+] [TEST 1] Executing V1 wired datacenter backbone interconnect stream-through path...")
     # 상용 결합 가이드: 고정 데이터센터 인프라 연동 시 deploy_env="WIRED_DATACENTER" 지정 (0ns NCCL 레이턴시 우회 가동)
+    # Production Integration Guide: Specify deploy_env="WIRED_DATACENTER" when integrating with fixed data center infrastructure (Activates 0ns NCCL latency bypass)
     out_v1 = fng_attention_layer(q_dummy, k_dummy, v_dummy, standby_dummy, deploy_env="WIRED_DATACENTER")
     
     # [KR] [차원 정합 출력 확인] 2차원 복원 다양체와 행렬곱 연산이 수행되어, 최종 출력은 [Nodes, Head_Dim, Feature_Dim] 사양으로 수렴합니다.
@@ -301,6 +321,7 @@ if __name__ == "__main__":
     # 2) [EN] Test 2: V2 Wireless Edge / 5G / Starlink Connection Turbulence Adaptation Validation
     print("\n[+] [TEST 2] Executing V2 wireless edge / 5G / Starlink stateful feedback loop path...")
     # 상용 결합 가이드: 무선/차량용/에지 등 패킷 유실이 잦은 환경 연동 시 deploy_env="WIRELESS_EDGE" 지정 (NaN 방어 루프 가동)
+    # Production Integration Guide: Specify deploy_env="WIRELESS_EDGE" when integrating with packet loss-prone environments such as wireless, automotive, or edge (Activates NaN defense loop)
     out_v2 = fng_attention_layer(q_dummy, k_dummy, v_dummy, standby_dummy, deploy_env="WIRELESS_EDGE")
     print(f" ✨ [SUCCESS] V2 stream-through output tensor shape finalized: {out_v2.shape}")
     
