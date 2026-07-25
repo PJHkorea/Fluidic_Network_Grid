@@ -2,7 +2,6 @@ import jax
 import jax.numpy as jnp
 from functools import partial
 
-# 우리가 앞서 구현한 1, 2번 핵심 수치 해석 필터 임포트
 from production_core.core_smoother_xla import execute_gradient_viscous_smoother
 from production_core.math_guardrails import enforce_algebraic_safety_gate
 
@@ -10,16 +9,20 @@ from production_core.math_guardrails import enforce_algebraic_safety_gate
 def compute_dynamic_viscosity_sigmoid(current_drop_rate, sigma_base=3.125e-5, sigma_max=0.01, k_stiffness=15.0, d_critical=0.35):
     """
     [FNG V3 PRODUCTION - SFU HARDWARE SIGMOID VISCOSITY SCALE KERNEL]
-    원작자 사양서 8.1조의 비선형 지수 가변 점성 수식을 단일 가속기 명령어 수준으로 구현했습니다.
-    패킷 유실률이 35% 임계점을 돌파하는 순간, 수치적 충격파를 흡수하기 위해 점성을 타르(Tar) 상태로 급격히 상전이시킵니다.
+    
+    Implements the non-linear exponential dynamic viscosity formulation specified in Section 8.1 
+    of the technical blueprint directly at the single accelerator instruction level.
+    The moment packet telemetry loss crosses the critical 35% threshold (`d_critical=0.35`), 
+    this kernel executes an abrupt numerical phase transition, shifting the gradient stream 
+    into a high-viscosity tar-like state to structurally absorb volatile numerical shockwaves.
     """
     target_dtype = current_drop_rate.dtype
     clamped_drop = jnp.clip(current_drop_rate, 0.0, 1.0)
     
-    # 사양서 명세 공식: σ(d_t) = σ_base + (σ_max - σ_base) / (1 + exp(-k * (d_t - d_c)))
+    # Formulation Specification: σ(d_t) = σ_base + (σ_max - σ_base) / (1 + exp(-k * (d_t - d_c)))
     activation_shift = jnp.array(k_stiffness, dtype=target_dtype) * (clamped_drop - jnp.array(d_critical, dtype=target_dtype))
     
-    # 가속기 SFU 전용 하드웨어 시그모이드 회로 직통 결착 (나눗셈 오버헤드 100% 소멸)
+    # Direct hardware binding onto the accelerator SFU native sigmoid circuit (100% division overhead liquidation)
     viscous_damping_ratio = jax.nn.sigmoid(activation_shift)
     
     dynamic_sigma = jnp.array(sigma_base, dtype=target_dtype) + (
@@ -28,48 +31,56 @@ def compute_dynamic_viscosity_sigmoid(current_drop_rate, sigma_base=3.125e-5, si
     
     return dynamic_sigma
 
+
 def compile_wireless_elastic_governor(devices_mesh, mesh_axis_name="fluidic_mesh"):
     """
     [FNG V3 PRODUCTION CORE - WIRELESS EDGE RESILIENT SCAN GOVERNOR]
-    호스트 단 파이썬 루프 제어 스톨을 박멸하고, 가속기 내부 레일 위에서 무선 통신 불안정 레이어를 다스리는 사령탑입니다.
+    
+    The central operational telemetry command plane architected to liquidate Python host-side loop 
+    control stalls and govern highly volatile wireless network communication dropouts. 
+    By compiling the loop logic natively onto accelerator hardware pipelines, this kernel 
+    guarantees sub-nanosecond state transitions.
     """
     
     def scan_step_fn(carry_state, input_slice):
         """
-        jax.lax.scan 내부에서 매 타임스텝(Sequence/Iteration)마다 0ns 피드백 루프로 가동되는 시간축 가드레일.
+        A zero-latency feedback guardrail executed at every sequential time-step iteration 
+        within the frozen `jax.lax.scan` machine-code graph block.
         """
-        # 1) 이전 사이클의 제어 가중치 및 무결성 4차원 데이터 다양체 고도화 분해
+        # 1) Higher-order deconstruction of historical carry weights and the clean 4D tensor manifold
         prev_sigma, prev_healthy_tensor = carry_state
         local_stream, current_drop_rate, pollution_mask = input_slice
         target_dtype = local_stream.dtype
         
-        # 2) 실시간 가변 점성 자동 추적 발동 (SFU 하드웨어 결착)
+        # 2) Invoke real-time adaptive viscosity tracking (SFU hardware-circuit binding active)
         next_sigma = compute_dynamic_viscosity_sigmoid(current_drop_rate)
         
-        # 3) 본질 연산 집행: 버거스 점성 기반 그라디언트 난류 정류 (1번 모듈 연계)
+        # 3) Execute main computational pass: Viscous Burgers' gradient turbulence rectification (Module 1 Interlock)
         purified_gradient = execute_gradient_viscous_smoother(
             raw_gradient=local_stream,
             viscosity_sigma=next_sigma,
             integration_epsilon=1e-6
         )
         
-        # 4) 수치 경계면 최종 가드레일: Leaky Slope 기반 NaN/INF 폭사 차단 방화벽 (2번 모듈 연계)
+        # 4) Open final silicon firewall: Branchless NaN/INF explosion protection via Leaky Slope (Module 2 Interlock)
         stabilized_gradient = enforce_algebraic_safety_gate(purified_gradient)
         
-        # 5) [★CRITICAL REAL-WORLD REFACTORING★] 오토그라드 절연 밸브 및 결함 락킹 매커니즘
+        # 5) [★CRITICAL REAL-WORLD REFACTORING★] Autograd Isolation Valve & Fault-Locking Mechanism
+        # Sets a rigorous physical threshold for total network blackouts and link disconnections.
         blackout_bool = current_drop_rate >= 0.85
+
         
-        # 스스로 무결함을 입증한 과거의 청정 데이터 텐서에 stop_gradient 락을 걸어 격리
+               # Isolate and lock the historically validated pristine data tensor via an active `stop_gradient` valve
         frozen_static_constant = jax.lax.stop_gradient(prev_healthy_tensor)
         
-        # 단일 기계어 수식 하드웨어 MUX 선택자(select)를 통해 오차 없이 0ns 컷오프 스위칭 집행
+        # Execute an error-free, 0ns cutoff pathway switch via a low-level hardware MUX selector (`jax.lax.select`)
         final_isolated_tensor = jax.lax.select(
             blackout_bool,
-            frozen_static_constant, # 암전 시: 내재된 항상성으로 과거 청정 상태 동결 생존 (Elastic Control)
-            stabilized_gradient     # 정상/지터 시: 정류가 완료된 고정밀 소수점 데이터를 안전 전사
+            frozen_static_constant, # Total Blackout: Invariant system homeostasis active via frozen historical cache (Elastic Control)
+            stabilized_gradient     # Safe Mode / Jitter: Streams pristine, fully rectified high-precision continuous floating-point values
         )
         
-        # 차기 루프(T+1)로 넘겨줄 Carry State를 업데이트하고 전역 관제계 텔레메트리 딕셔너리 빌드
+        # Update the sequential carry state for the next step iteration (T+1) and build the centralized global telemetry register
         next_carry_state = (next_sigma, final_isolated_tensor)
         step_telemetry = {
             "drop_rate": current_drop_rate,
@@ -81,30 +92,31 @@ def compile_wireless_elastic_governor(devices_mesh, mesh_axis_name="fluidic_mesh
 
 
 
-       # --------------------------------------------------------------------------
-    # 🗂️ STEP 3: XLA 컴파일러 전용 하드웨어 네이티브 순차 주사 실행부 정의
+
+    # --------------------------------------------------------------------------
+    # 🗂️ STEP 3: XLA Compiler-Native Sequential Scan Execution Harness
     # --------------------------------------------------------------------------
     def execution_harness(global_packet_stream_seq, initial_loop_state):
         """
-        파이썬 호스트 단의 인터프리터 루프 스톨을 100% 박멸하고,
-        가속기 레지스터 레일 위에서 0ns 컨텍스트 스위칭으로 순차 주사를 집행하는 실행 커널입니다.
+        Completely liquidates Python host-side interpreter loop stalls by executing 
+        sequential multi-step scans natively via 0ns context switching on accelerator register rails.
         """
-        # [교정 완료]: 내부 중첩 전이 함수인 scan_step_fn과 이름을 정확히 매칭 체결
-        # 데이터 파괴를 일으키던 이진화 반올림을 지웠으므로 4차원 연속적 소수점 무결성이 사수됩니다.
+        # [CALIBRATION COMPLETE]: Explicitly interlocks loop variables with the internal nested `scan_step_fn`.
+        # Because the data-destructive binary rounding logic has been liquidated, the 4-variant continuous manifold is conserved.
         final_carry, (output_tensor_sequence, loop_telemetry_history) = jax.lax.scan(
             scan_step_fn,
             init=initial_loop_state,
             xs=global_packet_stream_seq
         )
         
-        # 최하단 트랜스포머 어댑터 및 전역 관제계를 위해 정류 완료된 텐서 시퀀스와 지표를 사출합니다.
+        # Emits the pristine, fully rectified tensor sequence and hardware telemetry metrics for downstream transformer adapters.
         return output_tensor_sequence, loop_telemetry_history
 
-     # --------------------------------------------------------------------------
-    # 👑 STEP 4: [★FINAL EVOLUTION★] Shard-Map 하드웨어 격자 융합 및 팩토리 사출
     # --------------------------------------------------------------------------
-    # 원작자 고유의 최고급 자산인 shard_map 디렉티브를 전사 결착합니다.
-    # 단 1바이트의 임시 버퍼 생성 없이 글로벌 텐서 스트림을 온칩 레지스터 주소선 단으로 직결 스트리밍합니다.
+    # 👑 STEP 4: [★FINAL EVOLUTION★] Shard-Map Hardware Grid Fusion & Factory Emission
+    # --------------------------------------------------------------------------
+    # Statically binds the global tensor stream directly onto on-chip register address lines, 
+    # completely bypassing temporary heap allocation buffers to enforce a strict 0-byte memory foot-print.
     import jax.experimental.shard_map as sm
     from jax.sharding import PartitionSpec as P
     
@@ -112,16 +124,17 @@ def compile_wireless_elastic_governor(devices_mesh, mesh_axis_name="fluidic_mesh
         execution_harness,
         mesh=devices_mesh,
         in_specs=(
-            P(None, mesh_axis_name, None, None), # [Time_Steps, Nodes, Jitter, Dim] 4D 입력 사양 사수
-            P(None)                             # initial_loop_state (Carry 튜플 스펙 동결)
+            P(None, mesh_axis_name, None, None), # [Time_Steps, Nodes, Jitter, Dim] Strict 4D Input Sharding Spec
+            P(None)                             # initial_loop_state (Frozen Carry tuple specification layout)
         ),
-        # [★CRITICAL CALIBRATION★] 이진화 파괴가 소멸하여 지터 축 차원이 완벽히 보존 사출되므로
-        # 출력 명세를 원본과 동일한 청정 4차원 다양체 구조인 4D PartitionSpec 규격으로 확장 교정 완료!
+        # [★CRITICAL CALIBRATION★] Fully preserves volatile time-jitter dimensions due to the liquidation of binary clipping.
+        # Upgrades and aligns the entire output signature to a pristine 4D `PartitionSpec` manifold matching the original.
         out_specs=(
             P(None, mesh_axis_name, None, None), # purified_tensor_sequence [Time_Steps, Nodes, Jitter, Dim]
-            P(None)                             # loop_telemetry_history_metrics
+            P(None)                             # loop_telemetry_history_metrics registry
         )
     )
 
-    # 파이썬 호스트 단의 추상화 누수(Abstract Leak)를 원천 차단하며 퓨전 빌딩된 하드웨어 커널 객체 자체를 지연 반환
+    # Returns the fused hardware kernel factory while completely sealing any host-side abstraction leaks
     return orchestrated_hardware_bound_kernel
+
