@@ -80,48 +80,6 @@ def compile_wireless_elastic_governor(devices_mesh, mesh_axis_name="fluidic_mesh
         return next_carry_state, (final_isolated_tensor, step_telemetry)
 
 
-    # --------------------------------------------------------------------------
-    # ⛓️ STEP 1: 고도화된 수치 락킹 및 텔레메트리 반환형 스캔 스텝 함수 탑재
-    # --------------------------------------------------------------------------
-    def scan_step_fn(carry_state, input_slice):
-        # 1) 이전 사이클의 피드백 제어 상태 분해 (점성 계수와 4D 텐서 동시 Carry)
-        prev_sigma, prev_healthy_tensor = carry_state
-        local_stream_t, current_drop_rate, pollution_mask = input_slice
-        target_dtype = local_stream_t.dtype
-        
-        # 2) SFU 하드웨어 네이티브 가변 점성 자동 조율 가동
-        next_sigma = compute_dynamic_viscosity_sigmoid(current_drop_rate)
-        
-        # 3) 버거스 점성 기반 그라디언트 난류 정류 (1번 모듈 연계)
-        purified_gradient = execute_gradient_viscous_smoother(
-            raw_gradient=local_stream_t,
-            viscosity_sigma=next_sigma,
-            integration_epsilon=1e-6
-        )
-        
-        # 4) Leaky Slope 기반 NaN/INF 폭사 차단 방화벽 (2번 모듈 연계)
-        stabilized_gradient = enforce_algebraic_safety_gate(purified_gradient)
-        
-        # 5) 오토그라드 절연 밸브 및 결함 락킹 매커니즘
-        blackout_bool = current_drop_rate >= 0.85
-        frozen_static_constant = jax.lax.stop_gradient(prev_healthy_tensor)
-        
-        # bfloat16 소수점 4차원 텐서 규격을 무복사 상태 그대로 스트림스루 사출
-        final_isolated_tensor = jax.lax.select(
-            blackout_bool,
-            frozen_static_constant, # 암전 시: 내재된 항상성으로 과거 청정 상태 동결 생존
-            stabilized_gradient     # 정상 시: 정류가 완료된 실시간 고정밀 소수점 사출
-        )
-        
-        next_carry_state = (next_sigma, final_isolated_tensor)
-        
-        step_telemetry = {
-            "drop_rate": current_drop_rate,
-            "applied_sigma": next_sigma,
-            "blackout_active": blackout_bool.astype(target_dtype)
-        }
-        
-        return next_carry_state, (final_isolated_tensor, step_telemetry)
 
        # --------------------------------------------------------------------------
     # 🗂️ STEP 3: XLA 컴파일러 전용 하드웨어 네이티브 순차 주사 실행부 정의
