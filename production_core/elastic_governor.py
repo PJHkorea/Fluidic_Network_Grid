@@ -78,60 +78,39 @@ def compile_wireless_elastic_governor(devices_mesh, mesh_axis_name="fluidic_mesh
 
     return elastic_scan_step_fn
 
-def create_fng_scan_step_function():
-    """
-    [FNG V3 PRODUCTION CORE - MICRO-STEP TRANSITION BUILDER]
-    컴파일러 팩토리 내부에서 가동될 하드웨어 네이티브 시퀀스 스캔 루프 전이 함수입니다.
-    """
+    # --------------------------------------------------------------------------
+    # ⛓️ STEP 1: 고도화된 수치 락킹 및 텔레메트리 반환형 스캔 스텝 함수 탑재
+    # --------------------------------------------------------------------------
     def scan_step_fn(carry_state, input_slice):
-        """
-        매 클록 사이클(타임스텝 T)마다 가속기 내부 레지스터 락킹을 수행하는 초고속 결함 허용 엔진.
-        
-        - carry_state: T-1 사이클에서 피드백된 (이전 점성 계수, 이전 무결성 4D 텐서)
-        - input_slice: 현재 타임스텝에 유입된 (현재 생 텐서, 현재 드롭률, 현재 오염 마스크)
-        """
-        # 1) 이전 사이클의 제어 가중치 및 무결성 4차원 데이터 다양체 분해
+        # 1) 이전 사이클의 피드백 제어 상태 분해 (점성 계수와 4D 텐서 동시 Carry)
         prev_sigma, prev_healthy_tensor = carry_state
         local_stream_t, current_drop_rate, pollution_mask = input_slice
         target_dtype = local_stream_t.dtype
         
-        # 2) [원작자 수식 이식] SFU 하드웨어 네이티브 가변 점성 자동 조율 (올려주신 커널 가동)
+        # 2) SFU 하드웨어 네이티브 가변 점성 자동 조율 가동
         next_sigma = compute_dynamic_viscosity_sigmoid(current_drop_rate)
         
-        # 3) [본질 연산 우회] 버거스 점성 기반 그라디언트 난류 정류 (1번 모듈 core_smoother 연계)
-        # 패킷 유실로 생긴 고주파 충격파 노이즈를 끈적한 점성으로 온칩 스무딩 평탄화 처리합니다.
+        # 3) 버거스 점성 기반 그라디언트 난류 정류 (1번 모듈 연계)
         purified_gradient = execute_gradient_viscous_smoother(
             raw_gradient=local_stream_t,
             viscosity_sigma=next_sigma,
             integration_epsilon=1e-6
         )
         
-        # 4) [실리콘 가드레일] Leaky Slope 기반 NaN/INF 폭사 차단 방화벽 (2번 모듈 math_guardrails 연계)
-        # 극한의 수치 발산은 차단하되 미분 사슬의 절연을 막아 소수점 정밀도를 완벽히 보존합니다.
-        stabilized_gradient = enforce_algebraic_safety_gate(
-            purified_gradient=purified_gradient,
-            global_threshold=1e6,
-            leaky_slope=1e-3,
-            clean_baseline_val=0.0
-        )
+        # 4) Leaky Slope 기반 NaN/INF 폭사 차단 방화벽 (2번 모듈 연계)
+        stabilized_gradient = enforce_algebraic_safety_gate(purified_gradient)
         
-        # 5) [★MOCK-UP BUSTING REAL-WORLD REFACTORING★] 오토그라드 절연 밸브 체계 교정
-        # 무선 기지국 암전(Blackout 85% 이상) 상황 시, 가짜 데이터를 채워 넣는 사기 장치를 삭제합니다.
+        # 5) 오토그라드 절연 밸브 및 결함 락킹 매커니즘
         blackout_bool = current_drop_rate >= 0.85
-        
-        # 내 손으로 직전 단계까지 전송 완료한 '스스로 무결함을 입증한 과거의 청정 데이터 텐서'에 stop_gradient 락을 걸어 격리
         frozen_static_constant = jax.lax.stop_gradient(prev_healthy_tensor)
         
-        # 단일 기계어 하드웨어 MUX 선택자(jax.lax.select)를 통해 복사 비용 전혀 없이 0ns 컷오프 세션 스위칭 집행
-        # [교정 완료]: 데이터 파괴를 일으키던 (.astype(jnp.float32) > 0.5)를 완전히 소멸시키고, 
-        # 지터 축이 완전히 사수된 고정밀 bfloat16 소수점 4차원 텐서 [Nodes, Jitter_Dim, Feature_Dim]를 그대로 관류시킵니다.
+        # bfloat16 소수점 4차원 텐서 규격을 무복사 상태 그대로 스트림스루 사출
         final_isolated_tensor = jax.lax.select(
             blackout_bool,
-            frozen_static_constant, # 암전 시: 내재된 항상성(Homeostasis)으로 과거 청정 상태 동결 생존 (Elastic Guard)
-            stabilized_gradient     # 정상/지터 시: 버거스 점성 및 Leaky 방화벽으로 정류된 실시간 고정밀 소수점 사출
+            frozen_static_constant, # 암전 시: 내재된 항상성으로 과거 청정 상태 동결 생존
+            stabilized_gradient     # 정상 시: 정류가 완료된 실시간 고정밀 소수점 사출
         )
         
-        # 차기 타임스텝(T+1)으로 넘겨줄 0ns 피드백 Carry 상태 갱신 및 텔레메트리 리프팅 사양 구성
         next_carry_state = (next_sigma, final_isolated_tensor)
         
         step_telemetry = {
@@ -141,10 +120,8 @@ def create_fng_scan_step_function():
         }
         
         return next_carry_state, (final_isolated_tensor, step_telemetry)
-        
-    return scan_step_fn
 
-    # --------------------------------------------------------------------------
+       # --------------------------------------------------------------------------
     # 🗂️ STEP 3: XLA 컴파일러 전용 하드웨어 네이티브 순차 주사 실행부 정의
     # --------------------------------------------------------------------------
     def execution_harness(global_packet_stream_seq, initial_loop_state):
@@ -152,11 +129,10 @@ def create_fng_scan_step_function():
         파이썬 호스트 단의 인터프리터 루프 스톨을 100% 박멸하고,
         가속기 레지스터 레일 위에서 0ns 컨텍스트 스위칭으로 순차 주사를 집행하는 실행 커널입니다.
         """
-        # jax.lax.scan은 타임 시리즈 연산 전체를 단 하나의 HLO 정적 바이너리 루프로 융합 컴파일합니다.
-        # [교정 완료]: 데이터 파괴를 일으키던 이진화 반올림을 지웠으므로,
-        # 원본 데이터의 4차원 연속적 소수점 무결성이 완벽하게 보존된 상태로 반환됩니다.
+        # [교정 완료]: 내부 중첩 전이 함수인 scan_step_fn과 이름을 정확히 매칭 체결
+        # 데이터 파괴를 일으키던 이진화 반올림을 지웠으므로 4차원 연속적 소수점 무결성이 사수됩니다.
         final_carry, (output_tensor_sequence, loop_telemetry_history) = jax.lax.scan(
-            elastic_scan_step_fn,
+            scan_step_fn,
             init=initial_loop_state,
             xs=global_packet_stream_seq
         )
