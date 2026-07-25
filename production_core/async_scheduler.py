@@ -59,21 +59,24 @@ def compile_asynchronous_overlapping_pipeline(devices_mesh, mesh_axis_name="flui
         
         return stabilized_gradient
 
-    # --------------------------------──────────────────────────────────────────
-    # 🗂️ STEP 2: Shard-Map static 차원 고정 매핑을 통한 복사 비용 0바이트화
-    # --------------------------------──────────────────────────────────────────
-    # 분산 노드 축('fluidic_mesh')만 기하학적으로 쪼개고, 시간축 지터와 특징 차원은 None으로 동결 배치합니다.
-    # 이 하드웨어 매핑 스펙은 기존 오케스트레이터의 분산 링 버스 구조를 그대로 보존한 진짜 무기입니다.
+       # --------------------------------------------------------------------------
+    # 🗂️ STEP 2: [★FINAL EVOLUTION★] Shard-Map static 4차원 차원 고정 매핑
+    # --------------------------------------------------------------------------
+    # [★CRITICAL CALIBRATION★] 무선 가드(elastic_governor)와 규격을 완벽히 일치시키고,
+    # 데이터 파괴를 일으키던 이진화 반올림이 소멸하여 지터 축 차원이 완벽히 사수되므로,
+    # 입출력 명세를 원본과 동일한 청정 4차원 다양체 구조인 4D PartitionSpec 규격으로 전면 확장 교정 완료!
     orchestrated_shard_map = shard_map(
         fused_device_register_kernel,
         mesh=devices_mesh,
         in_specs=(
-            P(mesh_axis_name, None, None),  # raw_gradient 분산 배치 사양
-            P(mesh_axis_name, None, None),  # pollution_mask 분산 배치 사양
-            P(),                            # viscosity_sigma (전역 스칼라 상수)
-            P()                             # integration_epsilon (전역 스칼라 상수)
+            P(None, mesh_axis_name, None, None), # raw_gradient 분산 배치 4D 사양 사수
+            P(None, mesh_axis_name, None, None), # pollution_mask 분산 배치 4D 사양 사수
+            P(),                                # viscosity_sigma (전역 스칼라 상수)
+            P()                                 # integration_epsilon (전역 스칼라 상수)
         ),
-        out_specs=P(mesh_axis_name, None, None) # 전송 오버헤드 0바이트 무복사 정적 사출 사양
+        # 전송 오버헤드 0바이트 무복사 상태 그대로 청정 4차원 텐서 사출 사양 정렬
+        out_specs=P(None, mesh_axis_name, None, None) 
     )
-
+    
+    # 파이썬 호스트 단의 추상화 누수(Abstract Leak)를 원천 차단하며 퓨전 빌딩된 하드웨어 커널 객체 반환
     return orchestrated_shard_map
